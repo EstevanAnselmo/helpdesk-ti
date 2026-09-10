@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: helpdesk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: helpdesk
+      POSTGRES_USER: helpdesk
+      POSTGRES_PASSWORD: helpdesk
+    ports:
+      - "5432:5432"
+    volumes:
+      - helpdesk_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpdesk -d helpdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: helpdesk-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://helpdesk:helpdesk@postgres:5432/helpdesk
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  helpdesk_pgdata:
