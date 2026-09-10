@@ -6,24 +6,67 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.comment import TicketComment
 from app.models.enums import STAFF_ROLES, TicketPriority, TicketStatus
+from app.models.history import TicketHistory
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.schemas.ticket import CommentCreate, CommentOut, TicketCreate, TicketListOut, TicketOut, TicketUpdate
+from app.schemas.ticket import (
+    CommentCreate,
+    CommentOut,
+    TicketCreate,
+    TicketHistoryOut,
+    TicketListOut,
+    TicketOut,
+    TicketUpdate,
+)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
 def _ticket_or_404(db: Session, ticket_id: int) -> Ticket:
-    ticket = db.get(Ticket, ticket_id, options=[selectinload(Ticket.creator), selectinload(Ticket.assignee)])
+    ticket = db.get(
+        Ticket,
+        ticket_id,
+        options=[selectinload(Ticket.creator), selectinload(Ticket.assignee)],
+    )
     if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chamado não encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chamado não encontrado",
+        )
     return ticket
 
 
 def _ensure_can_view(ticket: Ticket, user: User) -> None:
     is_owner_or_assignee = ticket.creator_id == user.id or ticket.assignee_id == user.id
     if user.role not in STAFF_ROLES and not is_owner_or_assignee:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado",
+        )
+
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
+def _add_history(
+    db: Session,
+    *,
+    ticket_id: int,
+    actor_id: int,
+    action: str,
+    old_value: str | None = None,
+    new_value: str | None = None,
+) -> TicketHistory:
+    history = TicketHistory(
+        ticket_id=ticket_id,
+        actor_id=actor_id,
+        action=action,
+        old_value=old_value,
+        new_value=new_value,
+    )
+    db.add(history)
+    return history
 
 
 @router.get("", response_model=TicketListOut)
@@ -40,7 +83,6 @@ def list_tickets(
 ):
     stmt = select(Ticket).options(selectinload(Ticket.creator), selectinload(Ticket.assignee))
 
-    # Quem não é da equipe de suporte só enxerga os próprios chamados.
     if user.role not in STAFF_ROLES or mine:
         stmt = stmt.where(or_(Ticket.creator_id == user.id, Ticket.assignee_id == user.id))
     if status_filter is not None:
@@ -54,7 +96,9 @@ def list_tickets(
         stmt = stmt.where(or_(Ticket.title.ilike(like), Ticket.description.ilike(like)))
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    items = db.scalars(stmt.order_by(Ticket.created_at.desc()).offset(skip).limit(limit)).all()
+    items = db.scalars(
+        stmt.order_by(Ticket.created_at.desc()).offset(skip).limit(limit)
+    ).all()
     return TicketListOut(items=list(items), total=total, skip=skip, limit=limit)
 
 
@@ -71,14 +115,22 @@ def stats(db: Session = Depends(get_db), user: User = Depends(get_current_user))
 
 
 @router.get("/{ticket_id}", response_model=TicketOut)
-def get_ticket(ticket_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     ticket = _ticket_or_404(db, ticket_id)
     _ensure_can_view(ticket, user)
     return ticket
 
 
 @router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
-def create_ticket(data: TicketCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_ticket(
+    data: TicketCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     ticket = Ticket(
         title=data.title.strip(),
         description=data.description.strip(),
@@ -87,40 +139,108 @@ def create_ticket(data: TicketCreate, db: Session = Depends(get_db), user: User 
         creator_id=user.id,
     )
     db.add(ticket)
+    db.flush()
+
+    _add_history(
+        db,
+        ticket_id=ticket.id,
+        actor_id=user.id,
+        action="created",
+        new_value=ticket.status.value,
+    )
+
     db.commit()
-    db.refresh(ticket)
     return _ticket_or_404(db, ticket.id)
 
 
 @router.patch("/{ticket_id}", response_model=TicketOut)
 def update_ticket(
-    ticket_id: int, data: TicketUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    ticket_id: int,
+    data: TicketUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     ticket = _ticket_or_404(db, ticket_id)
     if user.role not in STAFF_ROLES and ticket.creator_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado",
+        )
 
-    if data.status is not None:
+    history_entries: list[TicketHistory] = []
+
+    if data.status is not None and data.status != ticket.status:
+        old_status = _enum_value(ticket.status)
+        new_status = _enum_value(data.status)
         ticket.status = data.status
+        history_entries.append(
+            _add_history(
+                db,
+                ticket_id=ticket.id,
+                actor_id=user.id,
+                action="status_changed",
+                old_value=old_status,
+                new_value=new_status,
+            )
+        )
+
     if data.priority is not None:
         if user.role not in STAFF_ROLES:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente a equipe de suporte pode alterar a prioridade")
-        ticket.priority = data.priority
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Somente a equipe de suporte pode alterar a prioridade",
+            )
+        if data.priority != ticket.priority:
+            old_priority = _enum_value(ticket.priority)
+            new_priority = _enum_value(data.priority)
+            ticket.priority = data.priority
+            history_entries.append(
+                _add_history(
+                    db,
+                    ticket_id=ticket.id,
+                    actor_id=user.id,
+                    action="priority_changed",
+                    old_value=old_priority,
+                    new_value=new_priority,
+                )
+            )
+
     if data.assignee_id is not None:
         if user.role not in STAFF_ROLES:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente a equipe de suporte pode atribuir chamados")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Somente a equipe de suporte pode atribuir chamados",
+            )
         assignee = db.get(User, data.assignee_id)
         if not assignee or assignee.role not in STAFF_ROLES:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Responsável inválido")
-        ticket.assignee_id = assignee.id
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Responsável inválido",
+            )
+        if ticket.assignee_id != assignee.id:
+            old_assignee_id = str(ticket.assignee_id) if ticket.assignee_id is not None else None
+            ticket.assignee_id = assignee.id
+            history_entries.append(
+                _add_history(
+                    db,
+                    ticket_id=ticket.id,
+                    actor_id=user.id,
+                    action="assignee_changed",
+                    old_value=old_assignee_id,
+                    new_value=str(assignee.id),
+                )
+            )
 
     db.commit()
-    db.refresh(ticket)
     return _ticket_or_404(db, ticket.id)
 
 
 @router.get("/{ticket_id}/comments", response_model=list[CommentOut])
-def list_comments(ticket_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_comments(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     ticket = _ticket_or_404(db, ticket_id)
     _ensure_can_view(ticket, user)
     return list(
@@ -135,12 +255,45 @@ def list_comments(ticket_id: int, db: Session = Depends(get_db), user: User = De
 
 @router.post("/{ticket_id}/comments", response_model=CommentOut, status_code=status.HTTP_201_CREATED)
 def add_comment(
-    ticket_id: int, data: CommentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    ticket_id: int,
+    data: CommentCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     ticket = _ticket_or_404(db, ticket_id)
     _ensure_can_view(ticket, user)
-    comment = TicketComment(ticket_id=ticket.id, author_id=user.id, content=data.content.strip())
+    comment = TicketComment(
+        ticket_id=ticket.id,
+        author_id=user.id,
+        content=data.content.strip(),
+    )
     db.add(comment)
+    db.flush()
+
+    _add_history(
+        db,
+        ticket_id=ticket.id,
+        actor_id=user.id,
+        action="comment_added",
+    )
+
     db.commit()
-    db.refresh(comment)
     return db.get(TicketComment, comment.id, options=[selectinload(TicketComment.author)])
+
+
+@router.get("/{ticket_id}/history", response_model=list[TicketHistoryOut])
+def list_history(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _ticket_or_404(db, ticket_id)
+    _ensure_can_view(ticket, user)
+    return list(
+        db.scalars(
+            select(TicketHistory)
+            .options(selectinload(TicketHistory.actor))
+            .where(TicketHistory.ticket_id == ticket_id)
+            .order_by(TicketHistory.created_at)
+        ).all()
+    )

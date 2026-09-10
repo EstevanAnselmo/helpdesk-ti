@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 import '../core/api_config.dart';
 import '../core/session_store.dart';
 import '../models/comment.dart';
-import '../models/history.dart';
 import '../models/ticket.dart';
 import '../models/user.dart';
 
@@ -159,17 +158,6 @@ class ApiService extends ChangeNotifier {
     final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/tickets/stats/summary'), headers: _headers);
     _throwIfError(response, fallback: 'Falha ao carregar métricas');
     return Map<String, dynamic>.from(jsonDecode(response.body));
-  }
-
-  Future<List<TicketHistoryModel>> getHistory(int ticketId) async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/history'),
-      headers: _headers,
-    );
-    _throwIfError(response, fallback: 'Falha ao carregar histórico');
-    return (jsonDecode(response.body) as List)
-        .map((e) => TicketHistoryModel.fromJson(e))
-        .toList();
   }
 
   Future<List<TicketCommentModel>> getComments(int ticketId) async {

@@ -36,16 +36,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final results = await Future.wait([
-        widget.api.getTickets(limit: 5),
-        widget.api.getStats(),
-      ]);
+      final TicketPage ticketPage =
+          await widget.api.getTickets(limit: 5);
+
+      final Map<String, dynamic> statistics =
+          await widget.api.getStats();
 
       if (!mounted) return;
 
       setState(() {
-        tickets = (results[0] as TicketPage).items;
-        stats = results[1] as Map<String, dynamic>;
+        tickets = ticketPage.items;
+        stats = statistics;
       });
     } catch (e) {
       if (!mounted) return;
@@ -54,11 +55,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         error = e.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        loading = false;
+      });
     }
   }
 
@@ -129,13 +130,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 enabled: false,
                 child: Text(
                   user?.name ?? '',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               if (user != null)
                 PopupMenuItem(
                   enabled: false,
-                  child: Text(_roleLabel(user.role.name)),
+                  child: Text(
+                    _roleLabel(user.role.name),
+                  ),
                 ),
               const PopupMenuDivider(),
               const PopupMenuItem(

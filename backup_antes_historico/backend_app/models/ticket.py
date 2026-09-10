@@ -40,6 +40,3 @@ class Ticket(Base):
     comments = relationship(
         "TicketComment", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketComment.created_at"
     )
-    history = relationship(
-        "TicketHistory", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketHistory.created_at"
-    )

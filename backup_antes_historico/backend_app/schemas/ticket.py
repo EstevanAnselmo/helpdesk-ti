@@ -56,16 +56,3 @@ class CommentOut(BaseModel):
     author: UserPublic | None = None
 
     model_config = {"from_attributes": True}
-
-
-class TicketHistoryOut(BaseModel):
-    id: int
-    ticket_id: int
-    actor_id: int
-    action: str
-    old_value: str | None = None
-    new_value: str | None = None
-    created_at: datetime
-    actor: UserPublic | None = None
-
-    model_config = {"from_attributes": True}
