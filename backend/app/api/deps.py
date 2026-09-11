@@ -15,22 +15,43 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if not credentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ausente")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token ausente",
+        )
+
     subject = decode_token(credentials.credentials)
     user = db.get(User, int(subject)) if subject and subject.isdigit() else None
+
     if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido ou expirado",
+        )
+
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="E-mail ainda não confirmado. Verifique sua caixa de entrada.",
+        )
+
     return user
 
 
 def require_staff(user: User = Depends(get_current_user)) -> User:
-    """Exige papel admin ou agent (usado em ações de gestão de chamados)."""
+    """Exige papel admin ou agent."""
     if user.role not in STAFF_ROLES:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito à equipe de suporte")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito à equipe de suporte",
+        )
     return user
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role.value != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito a administradores")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito a administradores",
+        )
     return user

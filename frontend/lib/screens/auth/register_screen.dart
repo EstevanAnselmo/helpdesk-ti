@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
-import '../dashboard/dashboard_screen.dart';
+import 'email_sent_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   final ApiService api;
-  const RegisterScreen({super.key, required this.api});
+
+  const RegisterScreen({
+    super.key,
+    required this.api,
+  });
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -13,10 +17,12 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
+
   final name = TextEditingController();
   final email = TextEditingController();
   final password = TextEditingController();
   final confirmPassword = TextEditingController();
+
   bool loading = false;
   String? error;
 
@@ -31,22 +37,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
+
     setState(() {
       loading = true;
       error = null;
     });
+
     try {
-      await widget.api.register(name.text.trim(), email.text.trim(), password.text);
+      final registeredEmail = email.text.trim();
+
+      final message = await widget.api.register(
+        name.text.trim(),
+        registeredEmail,
+        password.text,
+      );
+
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
+
+      Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => DashboardScreen(api: widget.api)),
-        (route) => false,
+        MaterialPageRoute(
+          builder: (_) => EmailSentScreen(
+            api: widget.api,
+            email: registeredEmail,
+            message: message,
+          ),
+        ),
       );
     } catch (e) {
-      setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+
+      setState(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+      });
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
   }
 
@@ -67,15 +94,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
                   TextFormField(
                     controller: name,
-                    decoration: const InputDecoration(labelText: 'Nome completo', prefixIcon: Icon(Icons.person_outline)),
-                    validator: (v) => (v == null || v.trim().length < 2) ? 'Informe seu nome' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome completo',
+                      prefixIcon: Icon(Icons.person_outline),
+                    ),
+                    validator: (value) =>
+                        (value == null || value.trim().length < 2)
+                            ? 'Informe seu nome'
+                            : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: email,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'E-mail', prefixIcon: Icon(Icons.email_outlined)),
-                    validator: (v) => (v == null || !v.contains('@')) ? 'Informe um e-mail válido' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'E-mail',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                    validator: (value) =>
+                        (value == null || !value.contains('@'))
+                            ? 'Informe um e-mail válido'
+                            : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -86,11 +125,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       helperText: 'Mínimo 8 caracteres, combinando letras e números',
                       prefixIcon: Icon(Icons.lock_outline),
                     ),
-                    validator: (v) {
-                      if (v == null || v.length < 8) return 'A senha deve ter pelo menos 8 caracteres';
-                      final hasLetter = v.contains(RegExp(r'[A-Za-z]'));
-                      final hasDigit = v.contains(RegExp(r'[0-9]'));
-                      if (!hasLetter || !hasDigit) return 'Combine letras e números';
+                    validator: (value) {
+                      if (value == null || value.length < 8) {
+                        return 'A senha deve ter pelo menos 8 caracteres';
+                      }
+
+                      final hasLetter = value.contains(RegExp(r'[A-Za-z]'));
+                      final hasDigit = value.contains(RegExp(r'[0-9]'));
+
+                      if (!hasLetter || !hasDigit) {
+                        return 'Combine letras e números';
+                      }
+
                       return null;
                     },
                   ),
@@ -98,18 +144,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   TextFormField(
                     controller: confirmPassword,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Confirmar senha', prefixIcon: Icon(Icons.lock_outline)),
-                    validator: (v) => v != password.text ? 'As senhas não coincidem' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar senha',
+                      prefixIcon: Icon(Icons.lock_outline),
+                    ),
+                    validator: (value) => value != password.text
+                        ? 'As senhas não coincidem'
+                        : null,
                   ),
                   if (error != null) ...[
                     const SizedBox(height: 12),
-                    Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontWeight: FontWeight.w600)),
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                   const SizedBox(height: 20),
                   FilledButton(
                     onPressed: loading ? null : _register,
                     child: loading
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Criar conta'),
                   ),
                 ],

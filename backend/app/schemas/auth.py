@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.config import get_settings
@@ -18,14 +20,30 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.lower()
+
     @field_validator("password")
     @classmethod
     def password_strength(cls, value: str) -> str:
         min_len = _min_password_length()
+
         if len(value) < min_len:
             raise ValueError(f"A senha deve ter pelo menos {min_len} caracteres")
-        if value.isdigit() or value.isalpha():
+
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("A senha deve ter no máximo 72 bytes")
+
+        if not any(char.isalpha() for char in value) or not any(char.isdigit() for char in value):
             raise ValueError("A senha deve combinar letras e números")
+
         return value
 
 
@@ -35,10 +53,8 @@ class UserOut(BaseModel):
     email: EmailStr
     role: UserRole
     is_active: bool
+    email_verified: bool
 
-    # Sem isto, o FastAPI não consegue serializar um objeto ORM (User) como
-    # este schema — era o bug que quebrava /auth/register, /auth/login e
-    # /auth/me com erro 500 no protótipo original.
     model_config = {"from_attributes": True}
 
 
@@ -47,3 +63,16 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in_minutes: int
     user: UserOut
+
+
+class RegisterResponse(BaseModel):
+    message: str
+    user: UserOut
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr

@@ -1,5 +1,6 @@
 import warnings
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,11 +13,26 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     password_min_length: int = 8
 
+    app_base_url: str = "http://127.0.0.1:8000"
+    email_verification_token_hours: int = 24
+
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from: str = "HelpDesk TI <no-reply@helpdesk-ti.local>"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
+    def smtp_configured(self) -> bool:
+        """Um host SMTP é suficiente; autenticação é opcional para servidores locais."""
+        return bool(self.smtp_host.strip())
+
+    @property
     def cors_list(self) -> list[str]:
-        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def is_production(self) -> bool:
@@ -26,15 +42,17 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
+
     if settings.is_production and settings.jwt_secret == "change-this-secret":
-        # Nunca deixamos o segredo padrão passar despercebido em produção.
         raise RuntimeError(
             "JWT_SECRET não pode ser o valor padrão em ambiente de produção. "
             "Defina uma variável de ambiente JWT_SECRET forte."
         )
+
     if not settings.is_production and settings.jwt_secret == "change-this-secret":
         warnings.warn(
             "Usando JWT_SECRET padrão (inseguro). Configure um valor próprio no .env antes de ir para produção.",
             stacklevel=2,
         )
+
     return settings
