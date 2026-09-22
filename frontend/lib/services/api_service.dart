@@ -31,7 +31,9 @@ class ApiService extends ChangeNotifier {
   void Function()? onSessionExpired;
 
   User? get currentUser => _currentUser;
+
   bool get isAuthenticated => _token != null && _currentUser != null;
+
   bool get isRestoringSession => _restoring;
 
   Map<String, String> get _headers => {
@@ -55,6 +57,7 @@ class ApiService extends ChangeNotifier {
     } catch (_) {
       _token = null;
       _currentUser = null;
+
       await _sessionStore.clear();
     }
 
@@ -83,6 +86,7 @@ class ApiService extends ChangeNotifier {
     _throwIfError(response, fallback: 'Falha no login');
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
+
     final accessToken = data['access_token'];
 
     if (accessToken is! String || accessToken.isEmpty) {
@@ -99,6 +103,7 @@ class ApiService extends ChangeNotifier {
     _currentUser = User.fromJson(userData);
 
     await _sessionStore.saveToken(accessToken);
+
     notifyListeners();
   }
 
@@ -116,18 +121,23 @@ class ApiService extends ChangeNotifier {
     _throwIfError(response, fallback: 'Falha no cadastro');
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
+
     final message = data['message'];
 
     if (message is String && message.trim().isNotEmpty) {
       return message;
     }
 
-    return 'Cadastro realizado. Verifique seu e-mail antes de fazer login.';
+    return 'Cadastro realizado. '
+        'Verifique seu e-mail antes de fazer login.';
   }
 
   Future<String> resendVerification(String email) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/resend-verification'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/auth/resend-verification',
+      ),
       headers: _headers,
       body: jsonEncode({'email': email.trim()}),
     );
@@ -138,13 +148,42 @@ class ApiService extends ChangeNotifier {
     );
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
+
     final message = data['message'];
 
     if (message is String && message.trim().isNotEmpty) {
       return message;
     }
 
-    return 'Se o e-mail estiver pendente de confirmação, um novo link será enviado.';
+    return 'Se o e-mail estiver pendente '
+        'de confirmação, um novo link será enviado.';
+  }
+
+  Future<String> forgotPassword(String email) async {
+    final response = await http.post(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/auth/forgot-password',
+      ),
+      headers: _headers,
+      body: jsonEncode({'email': email.trim()}),
+    );
+
+    _throwIfError(
+      response,
+      fallback: 'Falha ao solicitar recuperação de senha',
+    );
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+    final message = data['message'];
+
+    if (message is String && message.trim().isNotEmpty) {
+      return message;
+    }
+
+    return 'Se o e-mail estiver cadastrado, '
+        'enviaremos um link para redefinir sua senha.';
   }
 
   Future<void> logout() async {
@@ -152,6 +191,7 @@ class ApiService extends ChangeNotifier {
     _currentUser = null;
 
     await _sessionStore.clear();
+
     notifyListeners();
   }
 
@@ -189,7 +229,10 @@ class ApiService extends ChangeNotifier {
 
   Future<Ticket> getTicket(int id) async {
     final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$id'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/$id',
+      ),
       headers: _headers,
     );
 
@@ -222,7 +265,10 @@ class ApiService extends ChangeNotifier {
 
   Future<Ticket> updateTicket(int id, Map<String, dynamic> data) async {
     final response = await http.patch(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$id'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/$id',
+      ),
       headers: _headers,
       body: jsonEncode(data),
     );
@@ -234,7 +280,10 @@ class ApiService extends ChangeNotifier {
 
   Future<Map<String, dynamic>> getStats() async {
     final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/stats/summary'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/stats/summary',
+      ),
       headers: _headers,
     );
 
@@ -245,7 +294,10 @@ class ApiService extends ChangeNotifier {
 
   Future<List<TicketHistoryModel>> getHistory(int ticketId) async {
     final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/history'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/$ticketId/history',
+      ),
       headers: _headers,
     );
 
@@ -260,7 +312,10 @@ class ApiService extends ChangeNotifier {
 
   Future<List<TicketCommentModel>> getComments(int ticketId) async {
     final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/comments'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/$ticketId/comments',
+      ),
       headers: _headers,
     );
 
@@ -275,7 +330,10 @@ class ApiService extends ChangeNotifier {
 
   Future<TicketCommentModel> addComment(int ticketId, String content) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/comments'),
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/tickets/$ticketId/comments',
+      ),
       headers: _headers,
       body: jsonEncode({'content': content}),
     );
@@ -319,7 +377,8 @@ class ApiService extends ChangeNotifier {
             : body['detail'].toString();
       }
     } catch (_) {
-      // Mantém a mensagem padrão caso a resposta não seja JSON.
+      // Mantém a mensagem padrão caso
+      // a resposta não seja JSON.
     }
 
     if (response.statusCode == 401) {
@@ -329,6 +388,7 @@ class ApiService extends ChangeNotifier {
       _currentUser = null;
 
       unawaited(_sessionStore.clear());
+
       notifyListeners();
 
       if (hadSession) {

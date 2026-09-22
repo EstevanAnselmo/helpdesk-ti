@@ -10,20 +10,61 @@ def _min_password_length() -> int:
     return get_settings().password_min_length
 
 
+def _validate_password_strength(value: str) -> str:
+    min_len = _min_password_length()
+
+    if len(value) < min_len:
+        raise ValueError(
+            f"A senha deve ter pelo menos {min_len} caracteres"
+        )
+
+    if len(value.encode("utf-8")) > 72:
+        raise ValueError(
+            "A senha deve ter no máximo 72 bytes"
+        )
+
+    if not any(char.isalpha() for char in value):
+        raise ValueError(
+            "A senha deve combinar letras e números"
+        )
+
+    if not any(char.isdigit() for char in value):
+        raise ValueError(
+            "A senha deve combinar letras e números"
+        )
+
+    return value
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1, max_length=128)
+    password: str = Field(
+        min_length=1,
+        max_length=128,
+    )
 
 
 class UserCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
+    name: str = Field(
+        min_length=2,
+        max_length=120,
+    )
+
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+
+    password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: Any) -> Any:
-        return value.strip() if isinstance(value, str) else value
+        return (
+            value.strip()
+            if isinstance(value, str)
+            else value
+        )
 
     @field_validator("email")
     @classmethod
@@ -33,18 +74,7 @@ class UserCreate(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strength(cls, value: str) -> str:
-        min_len = _min_password_length()
-
-        if len(value) < min_len:
-            raise ValueError(f"A senha deve ter pelo menos {min_len} caracteres")
-
-        if len(value.encode("utf-8")) > 72:
-            raise ValueError("A senha deve ter no máximo 72 bytes")
-
-        if not any(char.isalpha() for char in value) or not any(char.isdigit() for char in value):
-            raise ValueError("A senha deve combinar letras e números")
-
-        return value
+        return _validate_password_strength(value)
 
 
 class UserOut(BaseModel):
@@ -55,7 +85,9 @@ class UserOut(BaseModel):
     is_active: bool
     email_verified: bool
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True,
+    }
 
 
 class TokenResponse(BaseModel):
@@ -76,3 +108,24 @@ class MessageResponse(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(
+        min_length=20,
+        max_length=4096,
+    )
+
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, value: str) -> str:
+        return _validate_password_strength(value)
