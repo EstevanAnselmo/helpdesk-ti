@@ -10,13 +10,12 @@ from app.api.auth import router as auth_router
 from app.api.tickets import router as tickets_router
 from app.api.users import router as users_router
 from app.core.config import get_settings
-from app.db.session import Base, SessionLocal, engine
+from app.db.session import SessionLocal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("helpdesk")
 
 settings = get_settings()
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HelpDesk TI API", version="1.1.0")
 
