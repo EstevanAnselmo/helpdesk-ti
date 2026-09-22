@@ -13,24 +13,21 @@ import '../models/user.dart';
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
+
   ApiException(this.message, {this.statusCode});
+
   @override
   String toString() => message;
 }
 
 /// Camada única de acesso à API + estado de sessão do app.
-///
-/// É um [ChangeNotifier] para que qualquer tela possa reagir a login/logout
-/// sem precisar repassar callbacks manualmente por todos os widgets.
 class ApiService extends ChangeNotifier {
   final SessionStore _sessionStore = SessionStore();
+
   String? _token;
   User? _currentUser;
   bool _restoring = true;
 
-  /// Chamado quando uma sessão que já estava autenticada é invalidada
-  /// (token expirado/revogado) — permite que a tela de login seja aberta
-  /// mesmo se o usuário estiver em uma tela profunda de navegação.
   void Function()? onSessionExpired;
 
   User? get currentUser => _currentUser;
@@ -38,64 +35,122 @@ class ApiService extends ChangeNotifier {
   bool get isRestoringSession => _restoring;
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (_token != null) 'Authorization': 'Bearer $_token',
-      };
+    'Content-Type': 'application/json',
+    if (_token != null) 'Authorization': 'Bearer $_token',
+  };
 
-  /// Tenta restaurar uma sessão salva (chamado uma vez, na inicialização do app).
   Future<void> restoreSession() async {
     final saved = await _sessionStore.readToken();
+
     if (saved == null) {
       _restoring = false;
       notifyListeners();
       return;
     }
+
     _token = saved;
+
     try {
       _currentUser = await _fetchMe();
     } catch (_) {
-      // Token expirado/inválido: limpa e volta para o login.
       _token = null;
+      _currentUser = null;
       await _sessionStore.clear();
     }
+
     _restoring = false;
     notifyListeners();
   }
 
   Future<User> _fetchMe() async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/auth/me'), headers: _headers);
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+      headers: _headers,
+    );
+
     _throwIfError(response);
-    return User.fromJson(jsonDecode(response.body));
+
+    return User.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<void> login(String email, String password) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/auth/login'),
       headers: _headers,
-      body: jsonEncode({'email': email, 'password': password}),
+      body: jsonEncode({'email': email.trim(), 'password': password}),
     );
+
     _throwIfError(response, fallback: 'Falha no login');
-    final data = jsonDecode(response.body);
-    _token = data['access_token'];
-    _currentUser = User.fromJson(data['user']);
-    await _sessionStore.saveToken(_token!);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final accessToken = data['access_token'];
+
+    if (accessToken is! String || accessToken.isEmpty) {
+      throw ApiException('Resposta de login inválida');
+    }
+
+    final userData = data['user'];
+
+    if (userData is! Map<String, dynamic>) {
+      throw ApiException('Usuário ausente na resposta de login');
+    }
+
+    _token = accessToken;
+    _currentUser = User.fromJson(userData);
+
+    await _sessionStore.saveToken(accessToken);
     notifyListeners();
   }
 
-  Future<void> register(String name, String email, String password) async {
+  Future<String> register(String name, String email, String password) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/auth/register'),
       headers: _headers,
-      body: jsonEncode({'name': name, 'email': email, 'password': password}),
+      body: jsonEncode({
+        'name': name.trim(),
+        'email': email.trim(),
+        'password': password,
+      }),
     );
+
     _throwIfError(response, fallback: 'Falha no cadastro');
-    // Após cadastrar, já faz login automaticamente para não pedir os dados de novo.
-    await login(email, password);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final message = data['message'];
+
+    if (message is String && message.trim().isNotEmpty) {
+      return message;
+    }
+
+    return 'Cadastro realizado. Verifique seu e-mail antes de fazer login.';
+  }
+
+  Future<String> resendVerification(String email) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/resend-verification'),
+      headers: _headers,
+      body: jsonEncode({'email': email.trim()}),
+    );
+
+    _throwIfError(
+      response,
+      fallback: 'Falha ao reenviar o e-mail de confirmação',
+    );
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final message = data['message'];
+
+    if (message is String && message.trim().isNotEmpty) {
+      return message;
+    }
+
+    return 'Se o e-mail estiver pendente de confirmação, um novo link será enviado.';
   }
 
   Future<void> logout() async {
     _token = null;
     _currentUser = null;
+
     await _sessionStore.clear();
     notifyListeners();
   }
@@ -112,22 +167,35 @@ class ApiService extends ChangeNotifier {
     final query = <String, String>{
       'skip': '$skip',
       'limit': '$limit',
-      if (status != null) 'status': status,
-      if (priority != null) 'priority': priority,
+      'status': ?status,
+      'priority': ?priority,
       if (category != null && category.isNotEmpty) 'category': category,
       if (search != null && search.isNotEmpty) 'search': search,
       if (mine) 'mine': 'true',
     };
-    final uri = Uri.parse('${ApiConfig.baseUrl}/tickets').replace(queryParameters: query);
+
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/tickets',
+    ).replace(queryParameters: query);
+
     final response = await http.get(uri, headers: _headers);
+
     _throwIfError(response, fallback: 'Falha ao carregar chamados');
-    return TicketPage.fromJson(jsonDecode(response.body));
+
+    return TicketPage.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<Ticket> getTicket(int id) async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/tickets/$id'), headers: _headers);
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/tickets/$id'),
+      headers: _headers,
+    );
+
     _throwIfError(response, fallback: 'Falha ao carregar chamado');
-    return Ticket.fromJson(jsonDecode(response.body));
+
+    return Ticket.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<Ticket> createTicket({
@@ -139,10 +207,17 @@ class ApiService extends ChangeNotifier {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/tickets'),
       headers: _headers,
-      body: jsonEncode({'title': title, 'description': description, 'category': category, 'priority': priority}),
+      body: jsonEncode({
+        'title': title,
+        'description': description,
+        'category': category,
+        'priority': priority,
+      }),
     );
+
     _throwIfError(response, fallback: 'Falha ao criar chamado');
-    return Ticket.fromJson(jsonDecode(response.body));
+
+    return Ticket.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<Ticket> updateTicket(int id, Map<String, dynamic> data) async {
@@ -151,14 +226,21 @@ class ApiService extends ChangeNotifier {
       headers: _headers,
       body: jsonEncode(data),
     );
+
     _throwIfError(response, fallback: 'Falha ao atualizar chamado');
-    return Ticket.fromJson(jsonDecode(response.body));
+
+    return Ticket.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> getStats() async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/tickets/stats/summary'), headers: _headers);
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/tickets/stats/summary'),
+      headers: _headers,
+    );
+
     _throwIfError(response, fallback: 'Falha ao carregar métricas');
-    return Map<String, dynamic>.from(jsonDecode(response.body));
+
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
   }
 
   Future<List<TicketHistoryModel>> getHistory(int ticketId) async {
@@ -166,16 +248,29 @@ class ApiService extends ChangeNotifier {
       Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/history'),
       headers: _headers,
     );
+
     _throwIfError(response, fallback: 'Falha ao carregar histórico');
+
     return (jsonDecode(response.body) as List)
-        .map((e) => TicketHistoryModel.fromJson(e))
+        .map(
+          (item) => TicketHistoryModel.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
   Future<List<TicketCommentModel>> getComments(int ticketId) async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/comments'), headers: _headers);
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/tickets/$ticketId/comments'),
+      headers: _headers,
+    );
+
     _throwIfError(response, fallback: 'Falha ao carregar comentários');
-    return (jsonDecode(response.body) as List).map((e) => TicketCommentModel.fromJson(e)).toList();
+
+    return (jsonDecode(response.body) as List)
+        .map(
+          (item) => TicketCommentModel.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
   }
 
   Future<TicketCommentModel> addComment(int ticketId, String content) async {
@@ -184,37 +279,63 @@ class ApiService extends ChangeNotifier {
       headers: _headers,
       body: jsonEncode({'content': content}),
     );
+
     _throwIfError(response, fallback: 'Falha ao comentar');
-    return TicketCommentModel.fromJson(jsonDecode(response.body));
+
+    return TicketCommentModel.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
-  /// Lista agentes/admins ativos — usada para preencher o seletor de responsável.
   Future<List<User>> getStaffUsers() async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/users'), headers: _headers);
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/users'),
+      headers: _headers,
+    );
+
     _throwIfError(response, fallback: 'Falha ao carregar equipe de suporte');
-    return (jsonDecode(response.body) as List).map((e) => User.fromJson(e)).toList();
+
+    return (jsonDecode(response.body) as List)
+        .map((item) => User.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
-  void _throwIfError(http.Response response, {String fallback = 'Erro inesperado'}) {
-    if (response.statusCode >= 200 && response.statusCode < 300) return;
+  void _throwIfError(
+    http.Response response, {
+    String fallback = 'Erro inesperado',
+  }) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return;
+    }
+
     String detail = fallback;
+
     try {
       final body = jsonDecode(response.body);
+
       if (body is Map && body['detail'] != null) {
-        detail = body['detail'] is String ? body['detail'] : body['detail'].toString();
+        detail = body['detail'] is String
+            ? body['detail'] as String
+            : body['detail'].toString();
       }
     } catch (_) {
-      // corpo não era JSON (ex: erro de proxy/servidor fora do ar) — mantém o fallback.
+      // Mantém a mensagem padrão caso a resposta não seja JSON.
     }
+
     if (response.statusCode == 401) {
       final hadSession = _token != null;
-      // Sessão expirada/token inválido: derruba a sessão local para a UI voltar ao login.
+
       _token = null;
       _currentUser = null;
+
       unawaited(_sessionStore.clear());
       notifyListeners();
-      if (hadSession) onSessionExpired?.call();
+
+      if (hadSession) {
+        onSessionExpired?.call();
+      }
     }
+
     throw ApiException(detail, statusCode: response.statusCode);
   }
 }

@@ -42,10 +42,13 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
   List<TicketCommentModel> comments = [];
   List<TicketHistoryModel> history = [];
   List<User> staff = [];
+
   bool loading = true;
-  String? error;
   bool updating = false;
   bool sendingComment = false;
+
+  String? error;
+
   final commentController = TextEditingController();
 
   bool get isStaff => widget.api.currentUser?.isStaff ?? false;
@@ -83,69 +86,108 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
 
       final results = await Future.wait(futures);
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         ticket = results[0] as Ticket;
         comments = results[1] as List<TicketCommentModel>;
         history = results[2] as List<TicketHistoryModel>;
+
         if (isStaff) {
           staff = results[3] as List<User>;
         }
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         error = e.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
     }
   }
 
   Future<void> _updateTicket(Map<String, dynamic> data) async {
-    setState(() => updating = true);
+    if (mounted) {
+      setState(() => updating = true);
+    }
+
     try {
       final updated = await widget.api.updateTicket(widget.ticketId, data);
+
       await _load();
-      if (!mounted) return;
+
+      if (!mounted) {
+        return;
+      }
+
       setState(() => ticket = updated);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
-      if (!mounted) return;
-      setState(() => updating = false);
+      if (mounted) {
+        setState(() => updating = false);
+      }
     }
   }
 
   Future<void> _sendComment() async {
     final text = commentController.text.trim();
-    if (text.isEmpty) return;
 
-    setState(() => sendingComment = true);
+    if (text.isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() => sendingComment = true);
+    }
+
     try {
       final comment = await widget.api.addComment(widget.ticketId, text);
+
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         comments = [...comments, comment];
         commentController.clear();
       });
+
       final updatedHistory = await widget.api.getHistory(widget.ticketId);
-      if (!mounted) return;
+
+      if (!mounted) {
+        return;
+      }
+
       setState(() => history = updatedHistory);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
-      if (!mounted) return;
-      setState(() => sendingComment = false);
+      if (mounted) {
+        setState(() => sendingComment = false);
+      }
     }
   }
 
@@ -159,22 +201,40 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     return switch (item.action) {
       'created' => '$actor abriu o chamado.',
       'status_changed' =>
-        '$actor alterou o status de ${_statusLabel(item.oldValue ?? '')} para ${_statusLabel(item.newValue ?? '')}.',
+        '$actor alterou o status de ${_statusLabel(item.oldValue ?? '')} '
+            'para ${_statusLabel(item.newValue ?? '')}.',
       'priority_changed' =>
-        '$actor alterou a prioridade de ${_priorityLabel(item.oldValue ?? '')} para ${_priorityLabel(item.newValue ?? '')}.',
-      'assignee_changed' => '$actor atribuiu o chamado a ${_assigneeName(item.newValue)}.',
+        '$actor alterou a prioridade de '
+            '${_priorityLabel(item.oldValue ?? '')} '
+            'para ${_priorityLabel(item.newValue ?? '')}.',
+      'assignee_changed' =>
+        '$actor atribuiu o chamado a ${_assigneeName(item.newValue)}.',
       'comment_added' => '$actor adicionou um comentário.',
       _ => '$actor realizou uma alteração no chamado.',
     };
   }
 
   String _assigneeName(String? id) {
-    if (id == null) return 'um responsável';
+    if (id == null) {
+      return 'um responsável';
+    }
+
     final numericId = int.tryParse(id);
-    if (numericId == null) return 'um responsável';
-    final match = staff.where((u) => u.id == numericId);
-    if (match.isNotEmpty) return match.first.name;
-    if (ticket?.assignee?.id == numericId) return ticket!.assignee!.name;
+
+    if (numericId == null) {
+      return 'um responsável';
+    }
+
+    final match = staff.where((user) => user.id == numericId);
+
+    if (match.isNotEmpty) {
+      return match.first.name;
+    }
+
+    if (ticket?.assignee?.id == numericId) {
+      return ticket!.assignee!.name;
+    }
+
     return 'um responsável';
   }
 
@@ -207,26 +267,26 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : error != null
-              ? Center(child: Text(error!))
-              : _content(),
+          ? Center(child: Text(error!))
+          : _content(),
     );
   }
 
   Widget _content() {
-    final t = ticket!;
+    final currentTicket = ticket!;
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         Text(
-          t.title,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          currentTicket.title,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
         Text(
-          t.description,
+          currentTicket.description,
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 12),
@@ -234,19 +294,27 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            Chip(label: Text('Categoria: ${t.category}')),
-            Chip(label: Text('Prioridade: ${_priorityLabel(t.priority)}')),
-            Chip(label: Text('Status: ${_statusLabel(t.status)}')),
-            Chip(label: Text('Criado em ${_dateFormat.format(t.createdAt.toLocal())}')),
-            if (t.creator != null) Chip(label: Text('Aberto por ${t.creator!.name}')),
-            if (t.assignee != null) Chip(label: Text('Responsável: ${t.assignee!.name}')),
+            Chip(label: Text('Categoria: ${currentTicket.category}')),
+            Chip(
+              label: Text(
+                'Prioridade: ${_priorityLabel(currentTicket.priority)}',
+              ),
+            ),
+            Chip(label: Text('Status: ${_statusLabel(currentTicket.status)}')),
+            Chip(
+              label: Text(
+                'Criado em '
+                '${_dateFormat.format(currentTicket.createdAt.toLocal())}',
+              ),
+            ),
+            if (currentTicket.creator != null)
+              Chip(label: Text('Aberto por ${currentTicket.creator!.name}')),
+            if (currentTicket.assignee != null)
+              Chip(label: Text('Responsável: ${currentTicket.assignee!.name}')),
           ],
         ),
         const SizedBox(height: 24),
-        Text(
-          'Status',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Status', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -255,7 +323,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
               .map(
                 (entry) => ChoiceChip(
                   label: Text(entry.value),
-                  selected: t.status == entry.key,
+                  selected: currentTicket.status == entry.key,
                   onSelected: updating
                       ? null
                       : (_) => _updateTicket({'status': entry.key}),
@@ -265,10 +333,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
         ),
         const SizedBox(height: 20),
         if (isStaff) ...[
-          Text(
-            'Prioridade',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Prioridade', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -277,7 +342,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                 .map(
                   (entry) => ChoiceChip(
                     label: Text(entry.value),
-                    selected: t.priority == entry.key,
+                    selected: currentTicket.priority == entry.key,
                     onSelected: updating
                         ? null
                         : (_) => _updateTicket({'priority': entry.key}),
@@ -286,13 +351,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                 .toList(),
           ),
           const SizedBox(height: 20),
-          Text(
-            'Responsável',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Responsável', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           DropdownButtonFormField<int>(
-            initialValue: t.assigneeId,
+            initialValue: currentTicket.assigneeId,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               isDense: true,
@@ -300,10 +362,8 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
             hint: const Text('Sem responsável'),
             items: staff
                 .map(
-                  (user) => DropdownMenuItem(
-                    value: user.id,
-                    child: Text(user.name),
-                  ),
+                  (user) =>
+                      DropdownMenuItem(value: user.id, child: Text(user.name)),
                 )
                 .toList(),
             onChanged: updating
@@ -318,10 +378,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
         ],
         const Divider(),
         const SizedBox(height: 12),
-        Text(
-          'Conversa',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Conversa', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         if (comments.isEmpty) const Text('Nenhum comentário ainda.'),
         ...comments.map(
@@ -391,8 +448,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        if (history.isEmpty)
-          const Text('Nenhum evento registrado.'),
+        if (history.isEmpty) const Text('Nenhum evento registrado.'),
         ...history.map(
           (item) => ListTile(
             contentPadding: EdgeInsets.zero,
@@ -400,9 +456,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
               child: Icon(_historyIcon(item.action), size: 18),
             ),
             title: Text(_historyText(item)),
-            subtitle: Text(
-              _dateFormat.format(item.createdAt.toLocal()),
-            ),
+            subtitle: Text(_dateFormat.format(item.createdAt.toLocal())),
           ),
         ),
       ],
