@@ -8,6 +8,7 @@ passlib[bcrypt]>=1.7,<2.0
 # passlib 1.7.x quebra com bcrypt>=4.1 (usa bcrypt.__about__, removido na 4.1+).
 bcrypt>=4.0,<4.1
 email-validator>=2.3,<3.0
+alembic>=1.14,<2.0
 
 # Testes
 pytest>=8.3,<9.0

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     app_base_url: str = "http://127.0.0.1:8000"
     email_verification_token_hours: int = 24
+    password_reset_token_minutes: int = 30
 
     smtp_host: str = ""
     smtp_port: int = 587
