@@ -31,3 +31,5 @@ android/app/release/
 
 # Logs
 *.log
+# Database backups
+*.dump
